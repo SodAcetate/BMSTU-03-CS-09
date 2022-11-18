@@ -16,7 +16,7 @@ jobs:
       run: dotnet build
 
     - name: Run
-      run: dotner run
+      run: dotnet run
       
     - name: Print output file
       run: cat avg.txt
