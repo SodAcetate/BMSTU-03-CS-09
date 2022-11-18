@@ -102,7 +102,7 @@ namespace Lab_09_1{
                     ThreadCount++;
                     GetAndWriteDataAsync(name, outputWriter);
                     // Без задержки не работает/работает плохо. Полагаю, траблы со стороны сети
-                    Thread.Sleep(200);
+                    //Thread.Sleep(200);
                 }
 
                 // Ждём завершения всех потоков
