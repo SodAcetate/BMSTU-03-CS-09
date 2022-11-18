@@ -1,0 +1,22 @@
+name: TestLab09
+
+on:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v3
+
+    - name: Build
+      run: dotnet build
+
+    - name: Run
+      run: dotner run
+      
+    - name: Print output file
+      run: cat avg.txt

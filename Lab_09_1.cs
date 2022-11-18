@@ -1,20 +1,18 @@
-
 namespace Lab_09_1{
     class Program{
 
-        public static int countIn = 0;
-        public static int countOut = 0;
-
+        // API_call мало чем отличается от 6 лабы
+        
         public class API_call{
-            public static async Task<double> GetAveragePrice(string stockName){
+            public static async Task<double?> GetAveragePrice(string stockName){
                 var url = $"https://query1.finance.yahoo.com/v7/finance/download/{stockName}";
                 var parameters = $"?period1={DateTimeOffset.Now.AddYears(-1).ToUnixTimeSeconds()}&period2={DateTimeOffset.Now.ToUnixTimeSeconds()}&interval=1d&events=history&includeAdjustedClose=true";
 
                 HttpClient client = new HttpClient();
                 client.BaseAddress = new Uri(url);
-                // запрос
-                HttpResponseMessage response = null;
-                //
+
+                // Здесь мы делаем запрос, пока не получим ответ
+                HttpResponseMessage? response = null;
                 while (response == null ){
                     
                     try{
@@ -23,99 +21,98 @@ namespace Lab_09_1{
                     catch(System.Net.Http.HttpRequestException){
                         Console.WriteLine($"{stockName} : connection troubles, tryin' again");
                     }
-                }
-                //
-                string rawResponse = "";
-                if (response.IsSuccessStatusCode){
-                    rawResponse = await response.Content.ReadAsStringAsync();
-                    //Console.WriteLine(rawResponse);
-                    //result.Raw = rawResponse;
+
                 }
                 
-
-                //rawResponse = rawResponse.Remove(0,rawResponse.IndexOf('\n')+1);
+                // Считываем ответ как стрингу
+                string rawResponse = await response.Content.ReadAsStringAsync();
+                
+                // Разделяем её на массив строк
                 string[] data = rawResponse.Split('\n');
-                //Console.WriteLine(data.Length);
+                // Считаем среднее
+
                 double sum = 0;
                 int count = 0;
                 foreach (string line in data){
+                    // try, потому что не по всем акциям есть норм данные - в таком случае их не получится спарсить
                     try{
+                        // Пробуем делить строку запятыми
                         string[] dayData = line.Split(',');
+                        // Нам нужны значения High и Low - в строке они стоят 3 и 4 соответственно. Достаём их, считаем среднее и плюсуем к сумме
                         sum += ( Convert.ToDouble(dayData[2]) + Convert.ToDouble(dayData[3]) ) / 2;
+                        // Не забываем увеличить счётчик успешно считанных дней
                         count++;
                     }
+                    // Это исключение появляется, когда по акции вообще нет данных
                     catch(IndexOutOfRangeException){
-                        Console.WriteLine($"{stockName} data seems to be missing");
+                        Console.WriteLine($"{stockName} : data seems to be missing");
                     }
+                    // Это исключение появляется для заголовочной строки и данных null
                     catch(FormatException){}
                 }
 
-                countIn++;
-
-                //Console.WriteLine(sum / data.Length);
+                // Если смогли достать хоть какие-то данные, считаем среднее. Иначе - возвращаем null.
                 if (count != 0) return sum / count;
-                else return 0;
+                else return null;
 
             } 
         }
-
-        public static void WriteToFile(StreamWriter outputWriter, string text){
-            //using (StreamWriter outputWriter = new StreamWriter(file)){
-                outputWriter.WriteLine(text);
-                countOut++;
-            //}
-        }
-
+        
+        // Объявляем мьютекс, чтобы безопасно писать в файл
         static Mutex mutOut = new();
-        static Mutex mutIn = new();
-        public static async void GetData(string name, StreamWriter outputWriter){
-            //while (!inputReader.EndOfStream){
-                    //Console.WriteLine("Iteration BEGIN");
-                    
-                    double avgValue = API_call.GetAveragePrice(name).GetAwaiter().GetResult();
-                   
+        // Счётчик параллельных потоков
+        static int ThreadCount = 0;
+        // Функция для получения и записи данных об одной акции
+        public static void GetAndWriteData(string name, StreamWriter outputWriter){
+                
+                // Получаем среднее значение цены
+                double? avgValue = API_call.GetAveragePrice(name).GetAwaiter().GetResult();
+                // Выводим на консоль (Вообще выводы необязательны, но я пока оставлю)
+                Console.WriteLine($"{name} : {avgValue}");
 
-                    Console.WriteLine($"{name} : {avgValue}");
-
-
-                    mutOut.WaitOne();
-
-                    WriteToFile(outputWriter, $"{name}:{avgValue}");
-                    outputWriter.Flush();
-
-                    mutOut.ReleaseMutex();
-
-                    //Console.WriteLine("Iteration END");
-                //}
+                // Ждём освобождения мьютекса и лочим его
+                mutOut.WaitOne();
+                // Пишем название акции и цену в поток, используемый для записи в файл
+                outputWriter.WriteLine($"{name} : {(avgValue==null? "null" : avgValue)}");
+                // Передаём содержимое потока в файл
+                outputWriter.Flush();
+                // Освобождаем мьютекс
+                mutOut.ReleaseMutex();
+                // Уменьшаем счётчик потоков
+                ThreadCount--;
         }
 
-
-        public static async Task<Task> GetDataAsync(string name, StreamWriter outputWriter){
-            return Task.Run(() => GetData(name, outputWriter));
+        // Асинхронная функция, запускающая функцию GetAndWriteData асинхронно
+        public static async Task<Task> GetAndWriteDataAsync(string name, StreamWriter outputWriter){
+            return Task.Run(() => GetAndWriteData(name, outputWriter));
         }
 
         static void Main(){
 
+            // Открываем наши файлы через using
             using (FileStream input = File.Open("ticker.txt", FileMode.Open), output = File.Open("avg.txt", FileMode.Create) ){
+                // Создаём потоки для чтения и записи
                 StreamReader inputReader = new StreamReader(input);
                 StreamWriter outputWriter = new StreamWriter(output);
                 
-                //string name;
-                //double? avgValue;
+                // Считываем строку (имя акции) и асинхронно вызываем метод получения и записи данных
                 while (!inputReader.EndOfStream){
-
-                    //mutIn.WaitOne();
                     string name = inputReader.ReadLineAsync().GetAwaiter().GetResult();
-                    //mutIn.ReleaseMutex();
-                    GetDataAsync(name, outputWriter);
-
-                    Thread.Sleep(100);
-
-                    //GetDataAsync(inputReader, outputWriter);
+                    // Увеличиваем счётчик потоков
+                    ThreadCount++;
+                    GetAndWriteDataAsync(name, outputWriter);
+                    // Без задержки не работает/работает плохо. Полагаю, траблы со стороны сети
+                    Thread.Sleep(200);
                 }
+
+                // Ждём завершения всех потоков
+                while (ThreadCount > 0){}
+
+                // Закрываем потоки от греха подальше
+                inputReader.Close();
+                outputWriter.Close();
             }
 
-            Console.WriteLine(countIn + " | " + countOut);
 
         }
     }
